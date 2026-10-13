@@ -106,7 +106,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def _write_ass(path, timeline, total, end_start, plan, bands, vo_durs, cta_dur):
-    sub_y = int(sum(max(bands, key=lambda b: b[1] - b[0])) / 2) if bands else int(H * 0.70)
+    sub_y = int(sum(bands[0]) / 2) if bands else int(H * 0.70)   # bands[0] = most frequent caption line
     ev = []
     for (a, b) in bands:   # soft cream bar over blurred foreign text, whole video
         hgt = int(b - a)

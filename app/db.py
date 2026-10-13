@@ -80,6 +80,11 @@ def update(job_id, **fields):
         c.execute(f"UPDATE jobs SET {keys} WHERE id=?", (*fields.values(), job_id))
 
 
+def counts():
+    with _lock, _conn() as c:
+        return {r[0]: r[1] for r in c.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status")}
+
+
 def reset_stuck():
     """Jobs left in 'processing' after a crash/redeploy go back to the queue."""
     with _lock, _conn() as c:

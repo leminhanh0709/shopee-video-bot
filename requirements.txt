@@ -3,3 +3,5 @@ google-api-python-client>=2.100
 google-auth>=2.25
 requests>=2.31
 numpy>=1.26
+pillow>=10
+rapidocr_onnxruntime>=1.3
