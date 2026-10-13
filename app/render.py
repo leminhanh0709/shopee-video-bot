@@ -41,8 +41,18 @@ def _base(src, plan, out, seed):
     for i, b in enumerate(plan["text_bands"]):
         y0 = int(b["y_top"] * h) // 2 * 2
         bh = max(2, int((b["y_bottom"] - b["y_top"]) * h) // 2 * 2)
-        chain.append(f"[{last}]split[m{i}][c{i}];[c{i}]crop={w}:{bh}:0:{y0},boxblur=26:4[b{i}];"
-                     f"[m{i}][b{i}]overlay=0:{y0}[o{i}]")
+        x0 = int(b.get("x_left", 0) * w) // 2 * 2
+        bw = max(2, int((b.get("x_right", 1) - b.get("x_left", 0)) * w) // 2 * 2)
+        bw = min(bw, w - x0)
+        if b.get("windows") and not b.get("always"):
+            en = "+".join(f"between(t,{a:.2f},{z:.2f})" for a, z in b["windows"])
+            enable = f":enable='{en}'"
+        else:
+            enable = ""
+        rad = max(2, min(24, bh // 4, bw // 4))          # boxblur radius must fit inside the crop
+        chain.append(f"[{last}]split[m{i}][c{i}];[c{i}]crop={bw}:{bh}:{x0}:{y0},"
+                     f"boxblur={rad}:4:{max(1, rad // 2)}:4[b{i}];"
+                     f"[m{i}][b{i}]overlay={x0}:{y0}{enable}[o{i}]")
         last = f"o{i}"
     zw, zh = int(w * z) // 2 * 2, int(h * z) // 2 * 2
     grade = (f"scale={zw}:{zh},crop={w // 2 * 2}:{h // 2 * 2},"
@@ -108,10 +118,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def _write_ass(path, timeline, total, end_start, plan, bands, vo_durs, cta_dur):
     sub_y = int(sum(bands[0]) / 2) if bands else int(H * 0.70)   # bands[0] = most frequent caption line
     ev = []
-    for (a, b) in bands:   # soft cream bar over blurred foreign text, whole video
-        hgt = int(b - a)
-        ev.append(f"Dialogue: 0,{_ass_time(0)},{_ass_time(total)},Shape,,0,0,0,,"
-                  f"{{\\an7\\pos(0,{int(a)})\\1a&H70&\\p1}}m 0 0 l {W} 0 l {W} {hgt} l 0 {hgt}{{\\p0}}")
     pop = "\\fscx85\\fscy85\\t(0,140,\\fscx100\\fscy100)"
     for i, (seg, (ts, T)) in enumerate(zip(plan["segments"], timeline)):
         ch = _chunks(seg["subtitle"]); tot = sum(len(c) for c in ch) or 1; t0 = ts
