@@ -1,5 +1,6 @@
 """Vietnamese text-to-speech. Returns mono float32 numpy audio at 24 kHz."""
 import html
+import os
 import subprocess
 import time
 
@@ -55,8 +56,48 @@ def _split(text, limit):
     return parts + ([cur] if cur else [])
 
 
+_VBEE_HEADERS = lambda: {"Authorization": f"Bearer {config.VBEE_TOKEN}", "App-Id": config.VBEE_APP_ID,
+                         "Content-Type": "application/json"}
+_vbee_mode = {"async": False}   # flips to async if the package has no realtime API
+
+
+def _vbee_async(text):
+    """Batch API: submit, then poll the request until the audio link is ready."""
+    r = requests.post("https://api.vbee.vn/v1/tts", timeout=60, headers=_VBEE_HEADERS(), json={
+        "text": text, "voiceCode": config.VBEE_VOICE, "outputFormat": "mp3", "bitrate": 128,
+        "speed": config.VBEE_SPEED, "mode": "async",
+        "webhookUrl": os.environ.get("VBEE_WEBHOOK_URL", "https://example.com/vbee-webhook")})
+    j = r.json()
+    rid = j.get("requestId") or (j.get("result") or {}).get("requestId")
+    if not rid:
+        raise RuntimeError(f"Vbee async lỗi {r.status_code}: {r.text[:300]}")
+    for _ in range(120):
+        time.sleep(1.5)
+        g = requests.get(f"https://api.vbee.vn/v1/tts/requests/{rid}", headers=_VBEE_HEADERS(), timeout=30).json()
+        g = g.get("result", g)
+        st = str(g.get("status", "")).upper()
+        if st == "COMPLETED" and g.get("audioLink"):
+            a = requests.get(g["audioLink"], timeout=60)
+            a.raise_for_status()
+            return a.content
+        if st in ("FAILED", "ERROR"):
+            raise RuntimeError(f"Vbee xử lý lỗi: {g}")
+    raise RuntimeError("Vbee quá thời gian chờ")
+
+
+def _vbee_one(chunk):
+    if not _vbee_mode["async"]:
+        try:
+            return _vbee_chunk(chunk)
+        except RuntimeError as e:
+            if "not supported" not in str(e).lower():
+                raise
+            _vbee_mode["async"] = True
+    return _vbee_async(chunk)
+
+
 def _vbee(text):
-    return np.concatenate([_decode(_retry(lambda c=c: _vbee_chunk(c))) for c in _split(text, 290)])
+    return np.concatenate([_decode(_retry(lambda c=c: _vbee_one(c))) for c in _split(text, 290)])
 
 
 # ---------------- Azure ----------------
