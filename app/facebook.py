@@ -30,7 +30,18 @@ def comment(object_id, message):
     raise RuntimeError(f"Facebook comment lỗi: {last}")
 
 
-def publish(path, caption, link):
+def comment_text(links):
+    """links: newline-separated, each 'url' or 'Tên: url' (max 3)."""
+    lines = [l.strip() for l in (links or "").splitlines() if l.strip()][:3]
+    if not lines:
+        return None
+    if len(lines) == 1 and lines[0].startswith("http"):
+        return config.FB_COMMENT_TEMPLATE.format(link=lines[0])
+    return config.FB_COMMENT_MULTI_HEADER + "\n" + "\n".join(f"• {l}" for l in lines)
+
+
+def publish(path, caption, links):
     vid = post_video(path, caption)
-    cid = comment(vid, config.FB_COMMENT_TEMPLATE.format(link=link)) if link else None
+    text = comment_text(links)
+    cid = comment(vid, text) if text else None
     return vid, cid, f"https://www.facebook.com/{vid}"
