@@ -52,6 +52,7 @@ FB_PAGE_ID = _get("FB_PAGE_ID")
 FB_PAGE_TOKEN = _get("FB_PAGE_TOKEN")
 FB_GRAPH_VERSION = _get("FB_GRAPH_VERSION", "v23.0")
 FB_COMMENT_TEMPLATE = _get("FB_COMMENT_TEMPLATE", "Link mua mình để ở đây nha 👉 {link}")
+FB_COMMENT_MULTI_HEADER = _get("FB_COMMENT_MULTI_HEADER", "Đồ mình dùng trong video để ở đây nha 👇")
 
 # --- Video options ---
 MUSIC_ENABLED = _bool("MUSIC_ENABLED", "0")
