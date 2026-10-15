@@ -52,17 +52,22 @@ def move(file_id, to_folder):
                          removeParents=",".join(f.get("parents", [])), fields="id").execute()
 
 
+MAX_LINKS = 3
+
+
 def product_link_from(name, description=""):
-    """Find the Shopee link: in the file description, or in the file name after '__'.
-    e.g.  'pancake__60SJhy1h9E.mp4'  ->  https://s.shopee.vn/60SJhy1h9E"""
-    m = re.search(r"https?://\S*shopee\S+", description or "")
-    if m:
-        return m.group(0)
-    stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
-    if "__" in stem:
-        code = stem.split("__")[-1].strip()
-        if code.startswith("http"):
-            return code
-        if re.fullmatch(r"[A-Za-z0-9]{6,20}", code):
-            return config.SHOPEE_SHORT_DOMAIN + code
-    return None
+    """Find up to 3 Shopee links: in the file description, or in the file name after '__'.
+    e.g.  'pancake__60SJhy1h9E.mp4'              -> https://s.shopee.vn/60SJhy1h9E
+          'pancake__60SJhy1h9E__AUujxp4Whd.mp4'  -> 2 links (one per line)
+    Returns the links joined by newlines, or None."""
+    links = re.findall(r"https?://\S*shopee\S+", description or "")
+    if not links:
+        stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
+        for code in stem.split("__")[1:]:
+            code = code.strip()
+            if code.startswith("http"):
+                links.append(code)
+            elif re.fullmatch(r"[A-Za-z0-9]{6,20}", code):
+                links.append(config.SHOPEE_SHORT_DOMAIN + code)
+    links = list(dict.fromkeys(links))[:MAX_LINKS]
+    return "\n".join(links) or None
