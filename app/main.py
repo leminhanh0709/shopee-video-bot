@@ -36,7 +36,8 @@ def scan_drive():
 # ---------------- Worker ----------------
 def caption_for(job, plan):
     lines = [f"🎬 #{job['id']} · {job['name']}",
-             f"🔗 Link: {job['product_link'] or 'CHƯA CÓ – reply tin này bằng link Shopee'}",
+             "🔗 Link:" + ("\n" + "\n".join(f"  • {l}" for l in job["product_link"].splitlines())
+                          if job["product_link"] else " CHƯA CÓ – reply tin này bằng link Shopee (tối đa 3, mỗi link 1 dòng)"),
              f"🪝 Hook: {plan.get('headline', '')}",
              "", "📝 Thoại:"]
     for s in plan["segments"]:
@@ -206,10 +207,16 @@ def handle_message(msg):
     job = db.by_message(rep["message_id"])
     if not job:
         return
-    m = URL_RE.search(text)
-    if m and "shopee" in m.group(0):
-        db.update(job["id"], product_link=m.group(0))
-        tg.send_text(f"🔗 Đã gắn link cho #{job['id']}. Bấm Duyệt để đăng.", reply_to=job["tg_message_id"])
+    links = []
+    for line in text.splitlines():                     # one link per line, optional "Tên: link"
+        u = URL_RE.search(line)
+        if u and "shopee" in u.group(0):
+            label = line[:u.start()].strip().rstrip(":-–").strip()
+            links.append(f"{label}: {u.group(0)}" if label else u.group(0))
+    if links:
+        links = links[:drive.MAX_LINKS]
+        db.update(job["id"], product_link="\n".join(links))
+        tg.send_text(f"🔗 Đã gắn {len(links)} link cho #{job['id']}. Bấm Duyệt để đăng.", reply_to=job["tg_message_id"])
     elif job["status"] == "waiting_approval":
         tg.clear_buttons(job["tg_message_id"])
         db.update(job["id"], status="queued", rewrite_note=text)
