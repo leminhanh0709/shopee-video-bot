@@ -150,12 +150,45 @@ def status_text():
     else:
         lines.append("💤 Không có video nào đang làm.")
     c = db.counts()
+    if c.get("awaiting_note"):
+        lines.append(f"✍️ Đang chờ mày gõ hướng viết lại: {c['awaiting_note']} video")
     lines.append(f"📥 Đang chờ làm: {c.get('queued', 0)} · 👀 Chờ duyệt: {c.get('waiting_approval', 0)} · "
                  f"❌ Lỗi: {c.get('failed', 0)} · 🎉 Đã đăng: {c.get('posted', 0)}")
     return "\n".join(lines)
 
 
-STATUS_VI = {"queued": "đang chờ làm", "processing": "đang làm", "waiting_approval": "đang chờ mày duyệt",
+REWRITE_ASK = ("✍️ Video #{id}: mày muốn viết lại thoại theo hướng nào?\n"
+               "Gõ yêu cầu vào đây là được, không cần reply. Ví dụ:\n"
+               "• hài hơn, câu ngắn, hook mạnh hơn\n"
+               "• kể chuyện kiểu drama mẹ chồng nàng dâu\n"
+               "• nhấn vào tiện lợi, tiết kiệm thời gian\n\n"
+               "Gõ \"tự do\" để bot tự chọn góc mới · gõ /huy để hủy.")
+
+
+def set_buttons(job):
+    try:
+        tg.call("editMessageReplyMarkup", {"chat_id": config.TELEGRAM_ADMIN_CHAT_ID,
+                                           "message_id": job["tg_message_id"], "reply_markup": tg.buttons(job["id"])})
+    except Exception:
+        tg.send_text(f"Video #{job['id']}:", markup=tg.buttons(job["id"]))
+
+
+def cancel_rewrite(job, quiet=False):
+    db.update(job["id"], status="waiting_approval")
+    set_buttons(job)
+    if not quiet:
+        tg.send_text(f"↩️ Đã hủy viết lại video #{job['id']}. Video quay lại chờ duyệt.", reply_to=job["tg_message_id"])
+
+
+def start_rewrite(job, note):
+    free = note.strip().lower() in ("tự do", "tu do", "tự chọn", "random")
+    db.update(job["id"], status="queued", rewrite_note=None if free else note.strip())
+    msg = "góc mới do bot tự chọn" if free else note.strip()
+    tg.send_text(f"🔁 Ok, đang viết lại video #{job['id']} theo hướng: {msg}\nKhoảng 3–5 phút nữa có bản mới.",
+                 reply_to=job["tg_message_id"])
+
+
+STATUS_VI = {"awaiting_note": "đang chờ mày gõ hướng viết lại", "queued": "đang chờ làm", "processing": "đang làm", "waiting_approval": "đang chờ mày duyệt",
              "approved": "đã duyệt", "posted": "đã đăng", "rejected": "đã bỏ", "failed": "bị lỗi"}
 
 
@@ -176,10 +209,13 @@ def handle_callback(cb):
             tg.send_text(f"❌ Đăng lỗi: {str(e)[:800]}", reply_to=job["tg_message_id"],
                          markup=tg.buttons(job["id"]))
     elif action == "re" and job["status"] == "waiting_approval":
-        tg.answer(cb["id"], "Đang viết lại")
+        tg.answer(cb["id"], "Mày muốn viết theo hướng nào?")
+        old = db.latest_with_status("awaiting_note")       # only one rewrite question open at a time
+        if old and old["id"] != job["id"]:
+            cancel_rewrite(old, quiet=True)
         tg.clear_buttons(job["tg_message_id"])
-        db.update(job["id"], status="queued")
-        tg.send_text("🔁 Đang viết lại thoại, vài phút nữa có bản mới.", reply_to=job["tg_message_id"])
+        db.update(job["id"], status="awaiting_note")
+        tg.send_text(REWRITE_ASK.format(id=job["id"]), reply_to=job["tg_message_id"])
     elif action == "no":
         tg.answer(cb["id"], "Đã bỏ")
         tg.clear_buttons(job["tg_message_id"])
@@ -202,6 +238,16 @@ def handle_message(msg):
     if text == "/status":
         return tg.send_text(status_text())
     rep = msg.get("reply_to_message")
+    waiting = db.latest_with_status("awaiting_note")
+    if text.lower() in ("/huy", "/hủy", "/cancel"):
+        if waiting:
+            cancel_rewrite(waiting)
+        else:
+            tg.send_text("Không có video nào đang chờ viết lại.")
+        return
+    # plain message (not a reply) while a rewrite question is open -> it's the rewrite direction
+    if waiting and text and not rep and not text.startswith("/"):
+        return start_rewrite(waiting, text)
     if not rep or not text:
         return
     job = db.by_message(rep["message_id"])
@@ -217,10 +263,9 @@ def handle_message(msg):
         links = links[:drive.MAX_LINKS]
         db.update(job["id"], product_link="\n".join(links))
         tg.send_text(f"🔗 Đã gắn {len(links)} link cho #{job['id']}. Bấm Duyệt để đăng.", reply_to=job["tg_message_id"])
-    elif job["status"] == "waiting_approval":
+    elif job["status"] in ("waiting_approval", "awaiting_note"):
         tg.clear_buttons(job["tg_message_id"])
-        db.update(job["id"], status="queued", rewrite_note=text)
-        tg.send_text("🔁 Ok, đang viết lại theo góp ý.", reply_to=job["tg_message_id"])
+        start_rewrite(job, text)
 
 
 def listener():
