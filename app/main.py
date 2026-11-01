@@ -324,6 +324,13 @@ def handle_message(msg):
         links = links[:drive.MAX_LINKS]
         db.update(job["id"], product_link="\n".join(links))
         tg.send_text(f"🔗 Đã gắn {len(links)} link cho #{job['id']}. Bấm Duyệt để đăng.", reply_to=job["tg_message_id"])
+    elif job.get("mode") == "music" and job["status"] == "waiting_approval":
+        # music videos have no AI caption: the owner's reply text becomes the Facebook caption
+        plan = json.loads(job["script_json"])
+        plan["post_caption"] = text
+        db.update(job["id"], script=plan)
+        tg.send_text(f"📝 Đã lưu caption cho #{job['id']}:\n{text}\n\nBấm ✅ Duyệt & đăng là bot đăng kèm caption này. "
+                     "Reply lại câu khác thì bot thay bằng câu mới.", reply_to=job["tg_message_id"])
     elif job["status"] in ("waiting_approval", "awaiting_note"):
         tg.clear_buttons(job["tg_message_id"])
         start_rewrite(job, text)
