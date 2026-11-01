@@ -7,7 +7,7 @@ import threading
 import time
 import traceback
 
-from . import claude_script, config, db, drive, facebook, render, textdetect, telegram_bot as tg
+from . import claude_script, config, db, drive, facebook, music, render, textdetect, telegram_bot as tg
 
 URL_RE = re.compile(r"https?://\S+")
 
@@ -28,9 +28,10 @@ def scan_drive():
         if db.exists(f["id"]):
             continue
         link = drive.product_link_from(f["name"], f.get("description", ""))
-        jid = db.create(f["id"], f["name"], link)
+        mode = music.mode_from_name(f["name"])
+        jid = db.create(f["id"], f["name"], link, mode)
         if jid:
-            log("new job", jid, f["name"], link)
+            log("new job", jid, mode, f["name"], link)
 
 
 # ---------------- Worker ----------------
@@ -55,7 +56,59 @@ def step(job, text):
     log(job["id"], text)
 
 
+def process_music(job):
+    jid = job["id"]
+    db.update(jid, status="processing", attempts=(job["attempts"] or 0) + 1)
+    d = job_dir(jid)
+    src = os.path.join(d, "src.mp4")
+    if not os.path.exists(src):
+        tg.send_text(f"⏳ Bắt đầu làm video #{jid} ({job['name']}) – chế độ nhạc. Khoảng 3–5 phút.")
+        step(job, "tải video từ Drive")
+        drive.download(job["drive_file_id"], src)
+    if not config.DRIVE_MUSIC_FOLDER_ID:
+        raise RuntimeError("Chưa có DRIVE_MUSIC_FOLDER_ID (thư mục kho nhạc) trong Variables trên Railway")
+    tracks = music.library()
+    if not tracks:
+        raise RuntimeError("Thư mục kho nhạc trên Drive chưa có bài nhạc nào")
+    previous = json.loads(job["script_json"]) if job.get("script_json") else None
+    if previous:                                    # "Đổi nhạc": reuse text detection, new random track
+        step(job, "đổi bài nhạc khác")
+        used = previous.get("music_history", []) + [previous["track_id"]]
+        plan = dict(previous, music_history=used, **music.pick(tracks, used))
+    else:
+        dur = claude_script.probe_duration(src)
+        plan = {"mode": "music", "end_cut": dur, "text_bands": [], "flip_safe": False, "music_history": [],
+                **music.pick(tracks)}
+        step(job, "tìm chữ nước ngoài để che")
+        try:
+            bands, title_t = textdetect.detect(src, d, dur)
+            if title_t and title_t < dur:
+                plan["end_cut"] = title_t           # cut the ending title/recipe card
+            plan["text_bands"] = bands
+        except Exception as e:
+            log(jid, "OCR failed:", e)
+    step(job, "ghép nhạc và dựng video")
+    out = os.path.join(d, "final.mp4")
+    music.render_video(src, plan, d, out, music.track_file({"id": plan["track_id"], "name": plan["track_name"]}),
+                       seed=jid * 100 + (job["attempts"] or 0))
+    name = re.sub(r"\.[A-Za-z0-9]+$", "", job["name"]) + f"__nhac_v{(job['attempts'] or 0) + 1}.mp4"
+    out_id, _ = drive.upload(out, name, config.DRIVE_OUTPUT_FOLDER_ID, description=job["product_link"] or "")
+    try:
+        drive.move(job["drive_file_id"], config.DRIVE_SOURCE_DONE_FOLDER_ID)
+    except Exception as e:
+        log(jid, "move source failed (ignored):", e)
+    preview = render.telegram_preview(out, d)
+    tg.send_video(preview, f"🎬 #{jid} · {job['name']}", None)
+    msg = tg.send_text(music.caption(job, plan), markup=music.buttons(jid))
+    db.update(jid, status="waiting_approval", script=plan, output_path=out, output_drive_id=out_id,
+              tg_message_id=msg["message_id"] if msg else None, rewrite_note=None, error=None)
+    CURRENT.update(job=None, step="")
+    log(jid, "sent for approval (music)")
+
+
 def process(job):
+    if job.get("mode") == "music":
+        return process_music(job)
     jid = job["id"]
     db.update(jid, status="processing", attempts=(job["attempts"] or 0) + 1)
     tg.send_text(f"⏳ Bắt đầu làm video #{jid} ({job['name']}). Khoảng 5–10 phút.")
@@ -184,6 +237,9 @@ def start_rewrite(job, note):
     free = note.strip().lower() in ("tự do", "tu do", "tự chọn", "random")
     db.update(job["id"], status="queued", rewrite_note=None if free else note.strip())
     msg = "góc mới do bot tự chọn" if free else note.strip()
+    if job.get("mode") == "music":
+        return tg.send_text(f"🎵 Video #{job['id']} là video nhạc nên bot đổi sang bài ngẫu nhiên khác, khoảng 2–3 phút.",
+                            reply_to=job["tg_message_id"])
     tg.send_text(f"🔁 Ok, đang viết lại video #{job['id']} theo hướng: {msg}\nKhoảng 3–5 phút nữa có bản mới.",
                  reply_to=job["tg_message_id"])
 
@@ -216,6 +272,11 @@ def handle_callback(cb):
         tg.clear_buttons(job["tg_message_id"])
         db.update(job["id"], status="awaiting_note")
         tg.send_text(REWRITE_ASK.format(id=job["id"]), reply_to=job["tg_message_id"])
+    elif action == "mu" and job["status"] == "waiting_approval":
+        tg.answer(cb["id"], "Đang đổi nhạc")
+        tg.clear_buttons(job["tg_message_id"])
+        db.update(job["id"], status="queued", rewrite_note=music.SWAP)
+        tg.send_text(f"🎵 Đang đổi bài nhạc khác cho video #{job['id']}, khoảng 2–3 phút.", reply_to=job["tg_message_id"])
     elif action == "no":
         tg.answer(cb["id"], "Đã bỏ")
         tg.clear_buttons(job["tg_message_id"])
