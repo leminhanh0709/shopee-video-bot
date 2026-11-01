@@ -21,6 +21,8 @@ DRIVE_INBOX_FOLDER_ID = _get("DRIVE_INBOX_FOLDER_ID")      # "Chờ làm"
 DRIVE_SOURCE_DONE_FOLDER_ID = _get("DRIVE_SOURCE_DONE_FOLDER_ID")  # "Video gốc đã xử lý"
 DRIVE_OUTPUT_FOLDER_ID = _get("DRIVE_OUTPUT_FOLDER_ID")    # "Thành phẩm"
 DRIVE_POLL_SECONDS = int(_get("DRIVE_POLL_SECONDS", "300"))
+DRIVE_MUSIC_FOLDER_ID = _get("DRIVE_MUSIC_FOLDER_ID")      # "4. Kho nhạc" (music mode)
+MUSIC_FRAMES = int(_get("MUSIC_FRAMES", "20"))
 
 # --- Claude ---
 ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
