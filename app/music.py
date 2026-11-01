@@ -100,6 +100,7 @@ def caption(job, plan):
              "🔗 Link:" + ("\n" + "\n".join(f"  • {l}" for l in links.splitlines()) if links
                           else " CHƯA CÓ – reply tin này bằng link Shopee (tối đa 3, mỗi link 1 dòng)"),
              f"🎵 Nhạc: {plan['track_name']}",
+             "📝 Caption: " + (plan.get("post_caption") or "chưa có – reply tin này bằng caption muốn đăng"),
              "",
              "Bấm 🎵 Đổi nhạc để lấy bài ngẫu nhiên khác trong kho (không lặp bài đã dùng)."]
     return "\n".join(lines)
