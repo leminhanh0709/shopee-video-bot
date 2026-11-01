@@ -37,14 +37,17 @@ def init():
             created_at REAL,
             updated_at REAL
         )""")
+        cols = {r[1] for r in c.execute("PRAGMA table_info(jobs)")}
+        if "mode" not in cols:                       # added for music mode
+            c.execute("ALTER TABLE jobs ADD COLUMN mode TEXT DEFAULT 'voice'")
 
 
-def create(drive_file_id, name, product_link):
+def create(drive_file_id, name, product_link, mode="voice"):
     now = time.time()
     with _lock, _conn() as c:
         cur = c.execute(
-            "INSERT OR IGNORE INTO jobs (drive_file_id, name, product_link, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'queued', ?, ?)", (drive_file_id, name, product_link, now, now))
+            "INSERT OR IGNORE INTO jobs (drive_file_id, name, product_link, status, mode, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'queued', ?, ?, ?)", (drive_file_id, name, product_link, mode, now, now))
         return cur.lastrowid if cur.rowcount else None
 
 
