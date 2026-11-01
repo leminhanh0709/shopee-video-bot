@@ -55,15 +55,31 @@ def move(file_id, to_folder):
 MAX_LINKS = 3
 
 
+MODE_WORDS = ("nhac", "voice")
+
+
+def name_tokens(name):
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
+    return [t.strip() for t in re.split(r"_+", stem) if t.strip()]
+
+
 def product_link_from(name, description=""):
-    """Find up to 3 Shopee links: in the file description, or in the file name after '__'.
-    e.g.  'pancake__60SJhy1h9E.mp4'              -> https://s.shopee.vn/60SJhy1h9E
-          'pancake__60SJhy1h9E__AUujxp4Whd.mp4'  -> 2 links (one per line)
+    """Find up to 3 Shopee links.
+    1) full links in the Drive file description, else
+    2) new naming rule:  <tên>_<nhac|voice>_<mã1>_<mã2>_<mã3>.mp4  -> codes AFTER the mode word, else
+    3) old naming rule:  <tên>__<mã1>__<mã2>.mp4
     Returns the links joined by newlines, or None."""
     links = re.findall(r"https?://\S*shopee\S+", description or "")
     if not links:
-        stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
-        for code in stem.split("__")[1:]:
+        toks = name_tokens(name)
+        low = [t.lower() for t in toks]
+        mode_at = next((i for i, t in enumerate(low) if t in MODE_WORDS), None)
+        if mode_at is not None:
+            codes = toks[mode_at + 1:]
+        else:
+            stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
+            codes = stem.split("__")[1:]
+        for code in codes:
             code = code.strip()
             if code.startswith("http"):
                 links.append(code)
